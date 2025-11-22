@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/gechemba/Documents/fraud_detection_mlops_pipeline/mlruns/198893569261768021/898e3c5004ce406d8d8ffb546e819317/artifacts
+end_time: null
+entry_point_name: ''
+experiment_id: '198893569261768021'
+lifecycle_stage: active
+run_id: 898e3c5004ce406d8d8ffb546e819317
+run_name: hyperparam_tuning
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1763624453247
+status: 1
+tags: []
+user_id: gechemba

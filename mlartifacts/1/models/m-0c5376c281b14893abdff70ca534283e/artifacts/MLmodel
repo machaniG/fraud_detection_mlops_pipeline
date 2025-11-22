@@ -1,0 +1,22 @@
+artifact_path: /Users/gechemba/Documents/fraud_detection_mlops_pipeline/mlartifacts/1/models/m-0c5376c281b14893abdff70ca534283e/artifacts
+flavors:
+  python_function:
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.sklearn
+    model_path: model.pkl
+    predict_fn: predict
+    python_version: 3.11.7
+  sklearn:
+    code: null
+    pickled_model: model.pkl
+    serialization_format: cloudpickle
+    sklearn_version: 1.7.2
+mlflow_version: 3.5.1
+model_id: m-0c5376c281b14893abdff70ca534283e
+model_size_bytes: 456855
+model_uuid: m-0c5376c281b14893abdff70ca534283e
+prompts: null
+run_id: be03bfd91ea046f595509e925e9470e6
+utc_time_created: '2025-11-22 09:13:26.798965'

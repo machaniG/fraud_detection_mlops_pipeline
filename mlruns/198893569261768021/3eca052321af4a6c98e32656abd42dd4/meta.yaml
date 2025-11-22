@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/gechemba/Documents/fraud_detection_mlops_pipeline/mlruns/198893569261768021/3eca052321af4a6c98e32656abd42dd4/artifacts
+end_time: null
+entry_point_name: ''
+experiment_id: '198893569261768021'
+lifecycle_stage: active
+run_id: 3eca052321af4a6c98e32656abd42dd4
+run_name: trial_0
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1763624453253
+status: 1
+tags: []
+user_id: gechemba

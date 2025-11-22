@@ -1,0 +1,14 @@
+artifact_uri: mlflow-artifacts:/946506463001043822/809c5ba258fa44d184464f837db9f05c/artifacts
+end_time: 1763641524518
+entry_point_name: ''
+experiment_id: '946506463001043822'
+lifecycle_stage: active
+run_id: 809c5ba258fa44d184464f837db9f05c
+run_name: MLOps_Pipeline_Main_Run
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1763641523874
+status: 4
+tags: []
+user_id: root

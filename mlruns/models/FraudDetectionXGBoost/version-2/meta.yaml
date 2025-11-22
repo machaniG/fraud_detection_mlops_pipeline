@@ -1,0 +1,15 @@
+creation_timestamp: 1763641672035
+current_stage: None
+deployment_job_state: null
+description: ''
+last_updated_timestamp: 1763641672035
+model_id: m-bc5b9e2c774b4a37bc9a82d549b9f7e2
+name: FraudDetectionXGBoost
+run_id: 19cdc4a09e2d4f3ab7b0cf25893dad84
+run_link: ''
+source: models:/m-bc5b9e2c774b4a37bc9a82d549b9f7e2
+status: READY
+status_message: null
+storage_location: mlflow-artifacts:/946506463001043822/models/m-bc5b9e2c774b4a37bc9a82d549b9f7e2/artifacts
+user_id: null
+version: 2

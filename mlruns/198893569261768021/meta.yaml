@@ -1,0 +1,6 @@
+artifact_location: file:///Users/gechemba/Documents/fraud_detection_mlops_pipeline/mlruns/198893569261768021
+creation_time: 1763624452949
+experiment_id: '198893569261768021'
+last_update_time: 1763624452949
+lifecycle_stage: active
+name: fraud_xgb_experiment

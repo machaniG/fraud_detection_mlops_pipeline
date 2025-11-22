@@ -1,0 +1,94 @@
+name: ML Pipeline CI/CD
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  DOCKER_IMAGE_NAME: fraud-detection-model
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+
+jobs:
+  # 1. Build and Test
+  build_and_test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+        
+      - name: Run Pytest and Coverage
+        # Assumes a minimal transactions.csv is checked into the repo for testing purposes
+        run: |
+          # Generate mock data file for the unit tests that rely on data_utils to run
+          # In a real environment, you would use mock objects, but here we satisfy the path dependency.
+          echo "transaction_id,user_id,amount,country,merchant_category,is_fraud,transaction_time" > transactions.csv
+          echo "1,1,100.0,US,A,0,2024-01-01T00:00:00Z" >> transactions.csv
+          
+          # Run tests and generate coverage report
+          pytest tests/ --cov=src --cov-report=xml --cov-report=term
+          
+      - name: Build Docker image
+        run: |
+          docker build -t ${{ env.DOCKER_IMAGE_NAME }}:${{ github.sha }} .
+          docker tag ${{ env.DOCKER_IMAGE_NAME }}:${{ github.sha }} ${{ env.DOCKER_IMAGE_NAME }}:latest
+
+  # 2. Push to Docker Hub and AWS ECR (only on merge to main)
+  publish_docker:
+    needs: build_and_test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # --- Push to Docker Hub ---
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push to Docker Hub
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ github.sha }}
+
+      # --- Push to AWS ECR ---
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push to Amazon ECR
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.DOCKER_IMAGE_NAME }}:latest
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.DOCKER_IMAGE_NAME }}:${{ github.sha }}
+        # NOTE: Ensure the ECR repository exists before running this action.
