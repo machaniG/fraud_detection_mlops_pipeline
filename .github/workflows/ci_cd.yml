@@ -39,7 +39,7 @@ jobs:
           echo "1,1,100.0,US,A,0,2024-01-01T00:00:00Z" >> transactions.csv
           
           # Run tests and generate coverage report
-          pytest tests/ --cov=src --cov-report=xml --cov-report=term
+          PYTHONPATH=. pytest tests/ --cov=src --cov-report=xml --cov-report=term
           
       - name: Build Docker image
         run: |
