@@ -1,3 +1,4 @@
+# skipping AWS deployment for now. Those lines are commented out.
 name: ML Pipeline CI/CD
 
 on:
