@@ -11,8 +11,8 @@ on:
 
 env:
   DOCKER_IMAGE_NAME: fraud-detection-model
-  AWS_REGION: us-east-1
-  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+  #AWS_REGION: us-east-1
+  #ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
 
 jobs:
   # 1. Build and Test
