@@ -1,0 +1,234 @@
+# Complete GitHub Actions workflow for AWS deployment
+# This automates: build, test, push to Docker Hub, and notify for AWS deployment
+
+name: Build and Deploy to AWS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:  # Manual trigger
+    inputs:
+      deploy_to_aws:
+        description: 'Deploy to AWS EC2?'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+
+env:
+  DOCKER_IMAGE_NAME: fraud-detection-model
+  DOCKERHUB_USERNAME: frida33876  # Your Docker Hub username
+
+jobs:
+  # Job 1: Build and Test
+  build_and_test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+      
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Generate mock data for tests
+        run: |
+          echo "transaction_id,user_id,amount,country,merchant_category,is_fraud,transaction_time" > transactions.csv
+          echo "1,1,100.0,US,A,0,2024-01-01T00:00:00Z" >> transactions.csv
+      
+      - name: Run tests with coverage
+        run: |
+          PYTHONPATH=. pytest tests/ --cov=src --cov-report=xml --cov-report=term
+      
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+
+  # Job 2: Build and Push Docker Image
+  build_and_push_docker:
+    needs: build_and_test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.production
+          push: true
+          tags: |
+            ${{ env.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest
+            ${{ env.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ github.sha }}
+          cache-from: type=registry,ref=${{ env.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:buildcache,mode=max
+      
+      - name: Image digest
+        run: echo "Image pushed successfully with SHA ${{ github.sha }}"
+
+  # Job 3: Upload to S3 (if AWS credentials are configured)
+  upload_to_s3:
+    needs: build_and_test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+        continue-on-error: true
+      
+      - name: Upload models to S3
+        run: |
+          if [ -d "models" ]; then
+            aws s3 sync models/ s3://fraud-detection-yourname-models/ --exclude "*" --include "*.pkl" || echo "S3 upload skipped (not configured)"
+          fi
+        continue-on-error: true
+      
+      - name: Upload data to S3
+        run: |
+          if [ -f "transactions.csv" ]; then
+            aws s3 cp transactions.csv s3://fraud-detection-yourname-data/raw/ || echo "S3 upload skipped (not configured)"
+          fi
+        continue-on-error: true
+
+  # Job 4: Create deployment summary
+  deployment_summary:
+    needs: [build_and_test, build_and_push_docker]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create deployment summary
+        run: |
+          echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Tests Passed**" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Docker Image Built**: \`${{ env.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Docker Image Pushed to Docker Hub**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 Next Steps for AWS Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "1. SSH into your EC2 instance" >> $GITHUB_STEP_SUMMARY
+          echo "2. Pull the latest image:" >> $GITHUB_STEP_SUMMARY
+          echo "   \`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "   docker pull ${{ env.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "   \`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "3. Stop and remove old container:" >> $GITHUB_STEP_SUMMARY
+          echo "   \`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "   docker stop fraud-api && docker rm fraud-api" >> $GITHUB_STEP_SUMMARY
+          echo "   \`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "4. Run new container:" >> $GITHUB_STEP_SUMMARY
+          echo "   \`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "   docker run -d --name fraud-api -p 8000:8000 \\" >> $GITHUB_STEP_SUMMARY
+          echo "     -e MLFLOW_TRACKING_URI=http://localhost:5001 \\" >> $GITHUB_STEP_SUMMARY
+          echo "     -e S3_BUCKET_DATA=fraud-detection-yourname-data \\" >> $GITHUB_STEP_SUMMARY
+          echo "     -e S3_BUCKET_MODELS=fraud-detection-yourname-models \\" >> $GITHUB_STEP_SUMMARY
+          echo "     ${{ env.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "   \`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 **Docker Hub**: https://hub.docker.com/r/${{ env.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
+
+  # Job 5: Notify for manual AWS deployment
+  notify_deployment:
+    needs: [build_and_push_docker, upload_to_s3]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create deployment issue
+        if: github.event.inputs.deploy_to_aws == 'yes' || github.ref == 'refs/heads/main'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const date = new Date().toISOString();
+            const issueTitle = `🚀 AWS Deployment Ready - ${date.split('T')[0]}`;
+            const issueBody = `
+            ## AWS Deployment Checklist
+            
+            A new Docker image is ready for deployment to AWS EC2.
+            
+            **Image**: \`${{ env.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ github.sha }}\`
+            **Commit**: ${context.sha.substring(0, 7)}
+            **Branch**: ${context.ref}
+            
+            ### Deployment Steps:
+            
+            - [ ] SSH to EC2 instance
+            - [ ] Pull latest image
+            - [ ] Stop old container
+            - [ ] Start new container
+            - [ ] Verify health endpoint
+            - [ ] Test prediction endpoint
+            - [ ] Check CloudWatch logs
+            - [ ] Close this issue
+            
+            ### Commands:
+            
+            \`\`\`bash
+            # SSH to EC2
+            ssh -i your-key.pem ec2-user@YOUR_EC2_IP
+            
+            # Pull latest image
+            docker pull ${{ env.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest
+            
+            # Update container
+            docker stop fraud-api || true
+            docker rm fraud-api || true
+            docker run -d --name fraud-api -p 8000:8000 \\
+              -e MLFLOW_TRACKING_URI=http://localhost:5001 \\
+              -e AWS_DEFAULT_REGION=us-east-1 \\
+              ${{ env.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest
+            
+            # Verify
+            curl http://localhost:8000/health
+            \`\`\`
+            
+            **Deployed on**: _Add timestamp when deployed_
+            `;
+            
+            try {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: issueTitle,
+                body: issueBody,
+                labels: ['deployment', 'aws', 'automated']
+              });
+              console.log('Deployment issue created successfully');
+            } catch (error) {
+              console.log('Could not create issue:', error.message);
+            }

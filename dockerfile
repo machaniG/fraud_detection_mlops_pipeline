@@ -1,34 +1,46 @@
-# Use a slim Python image for smaller size
+# Production Dockerfile for AWS Deployment
+# Optimized for smaller size and faster builds
+
 FROM python:3.10-slim
 
-# Set environment variables for non-interactive commands
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-# Set MLflow tracking URI for the container environment
-ENV MLFLOW_TRACKING_URI=http://mlflow-server:5001 
-# Note: For local testing, this will use http://localhost:5001.
-# In a real setup, this would be an actual domain/IP of the MLflow server.
+# Prevent Python from writing pyc files and buffering stdout/stderr
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
 
-# Set PYTHONPATH to include the /app directory so 'src' imports work
-ENV PYTHONPATH=/app
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies
+# Set working directory
 WORKDIR /app
-COPY requirements.txt /app/
 
-# Install Python dependencies, optimizing for cached layers
+# Copy requirements and install Python dependencies
+COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application code
-COPY . /app/
+# Copy application code
+COPY scripts/ ./scripts/
+COPY src/ ./src/
+COPY tests/ ./tests/
 
-# The dataset needs to be here for the script to run
-# NOTE: In a real-world scenario, the data is typically pulled from S3 or a DB,
-# but for this demo, we assume the data file is copied into the container.
-COPY transactions.csv /app/transactions.csv 
+# Copy data file (for initial training)
+# In production, this would be fetched from S3
+COPY transactions.csv ./transactions.csv
 
-# Command to run the training script when the container starts
-# The data file path is passed as an argument.
-ENTRYPOINT ["python", "scripts/train.py"]
-CMD ["--data", "transactions.csv"]
+# Create directories for artifacts
+RUN mkdir -p /app/models /app/mlruns /app/logs
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Expose FastAPI port
+EXPOSE 8000
+
+# Run the complete API
+CMD ["python", "scripts/api.py"]
