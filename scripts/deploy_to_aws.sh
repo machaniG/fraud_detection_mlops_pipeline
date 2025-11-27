@@ -30,14 +30,14 @@ echo "=========================================="
 echo ""
 
 # Configuration - Update these values
-REGION="us-east-1"
+REGION="eu-central-1"  # AWS region
 KEY_NAME="fraud-detection-key"  # Your EC2 key pair name
 SECURITY_GROUP_NAME="fraud-detection-sg"
 IAM_ROLE="fraud-detection-ec2-role"
 DOCKER_IMAGE="frida33876/fraud-detection-model:latest"  # Your Docker Hub image
-S3_BUCKET_DATA="fraud-detection-yourname-data"  # Change 'yourname' to something unique
-S3_BUCKET_MODELS="fraud-detection-yourname-models"
-S3_BUCKET_MLFLOW="fraud-detection-yourname-mlflow"
+S3_BUCKET_DATA="fraud-detection-frida-data"  # Change 'yourname' to something unique
+S3_BUCKET_MODELS="fraud-detection-frida-models"
+S3_BUCKET_MLFLOW="fraud-detection-frida-mlflow"
 
 # AMI ID for Amazon Linux 2 (update if needed)
 AMI_ID="ami-0c55b159cbfafe1f0"  # Amazon Linux 2 in us-east-1
