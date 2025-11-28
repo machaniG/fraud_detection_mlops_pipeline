@@ -107,7 +107,6 @@ def run_training_step(X_train, X_test, y_train, y_test, preprocessor, run_name: 
         # Setting registered_model_name here registers the model as a candidate
         mlflow.sklearn.log_model(
             sk_model=pipeline,
-            artifact_path="model",
             name="model",
             registered_model_name=MODEL_NAME,
             input_example=X_train.head(5)
@@ -183,8 +182,9 @@ def execute_hyperparameter_tuning(X_train, X_val, y_train, y_val, X_test, y_test
 
                 mlflow.sklearn.log_model(
                     sk_model=pipeline,
-                    artifact_path="model",
-                    registered_model_name=MODEL_NAME
+                    name="model",
+                    registered_model_name=MODEL_NAME,
+                    input_example=X_test.head(5)
                 )
                 best_run_id = run.info.run_id
     

@@ -19,14 +19,16 @@ import logging
 import subprocess
 from typing import Optional, Dict, Any
 from datetime import datetime
+from contextlib import asynccontextmanager
 import json
 
 import uvicorn
 import mlflow
+from mlflow.exceptions import MlflowException
 import pandas as pd
 import boto3
 from fastapi import FastAPI, HTTPException, BackgroundTasks
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 # Add project root to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -42,17 +44,14 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 MODEL_NAME = "FraudDetectionXGBoost"
-MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5001")
+# Prefer an environment variable for runtime; default to localhost for local dev.
+# IMPORTANT: inside Docker containers '127.0.0.1' refers to the container itself.
+# For Docker Desktop on macOS use 'host.docker.internal', for Kubernetes use the
+# cluster DNS service (e.g. http://mlflow-server.default.svc.cluster.local:5001).
+MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://127.0.0.1:5001")
 TARGET_MODEL_STAGE = "Staging"
-S3_BUCKET_DATA = os.getenv("S3_BUCKET_DATA", "fraud-detection-yourname-data")
-S3_BUCKET_MODELS = os.getenv("S3_BUCKET_MODELS", "fraud-detection-yourname-models")
-
-# Initialize FastAPI
-app = FastAPI(
-    title="Fraud Detection API",
-    description="Complete MLOps API for fraud detection model training and serving",
-    version="1.0.0"
-)
+S3_BUCKET_DATA = os.getenv("S3_BUCKET_DATA", "fraud-detection-frida-data")
+S3_BUCKET_MODELS = os.getenv("S3_BUCKET_MODELS", "fraud-detection-frida-models")
 
 # Global model variable
 MODEL = None
@@ -62,6 +61,8 @@ s3_client = None
 
 class Transaction(BaseModel):
     """Input schema for fraud prediction"""
+    model_config = ConfigDict(extra='allow')
+    
     user_id: int
     account_age_days: int
     total_transactions_user: int
@@ -76,9 +77,6 @@ class Transaction(BaseModel):
     cvv_result: int
     three_ds_flag: int
     shipping_distance_km: float
-    
-    class Config:
-        extra = 'allow'
 
 class TrainingRequest(BaseModel):
     """Request schema for training"""
@@ -135,25 +133,29 @@ def download_data_from_s3(data_path: str):
         logger.warning(f"Failed to download from S3: {e}. Using local file.")
         return data_path
 
-# ============== Startup/Shutdown ==============
+# ============== Lifespan Context Manager ==============
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize services on startup"""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for startup/shutdown"""
+    # Startup
     logger.info("Starting Fraud Detection API...")
-    
-    # Initialize S3
     initialize_s3()
-    
-    # Try to load model (may fail if no model in registry yet)
     load_model_from_registry()
-    
     logger.info("✓ API startup complete")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on shutdown"""
+    
+    yield
+    
+    # Shutdown
     logger.info("Shutting down Fraud Detection API...")
+
+# Initialize FastAPI with lifespan
+app = FastAPI(
+    title="Fraud Detection API",
+    description="Complete MLOps API for fraud detection model training and serving",
+    version="1.0.0",
+    lifespan=lifespan
+)
 
 # ============== Health & Info Endpoints ==============
 
@@ -176,19 +178,34 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    mlflow_status = "connected"
+    mlflow_status = "unknown"
+    mlflow_client_version = getattr(mlflow, "__version__", "unknown")
     try:
         mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-        mlflow.MlflowClient().list_experiments()
+        client = mlflow.MlflowClient()
+
+        # Lightweight connectivity check: attempt to list a small set of experiments.
+        # Some mlflow servers can have many experiments, but this call is sufficient
+        # to validate connectivity and authentication. We catch Mlflow-specific
+        # exceptions separately to provide clearer diagnostics.
+        try:
+            client.list_experiments()
+            mlflow_status = "connected"
+        except MlflowException as me:
+            mlflow_status = f"mlflow_exception: {me}"
+        except Exception as e:
+            mlflow_status = f"error: {e}"
+
     except Exception as e:
-        mlflow_status = f"error: {str(e)}"
-    
+        mlflow_status = f"error_initializing_client: {e}"
+
     return {
         "status": "healthy" if MODEL is not None else "degraded",
         "model_loaded": MODEL is not None,
         "model_name": MODEL_NAME,
         "model_stage": TARGET_MODEL_STAGE,
         "mlflow_uri": MLFLOW_TRACKING_URI,
+        "mlflow_client_version": mlflow_client_version,
         "mlflow_status": mlflow_status,
         "s3_available": s3_client is not None,
         "timestamp": datetime.now().isoformat()
@@ -213,28 +230,30 @@ async def predict_fraud(transaction: Transaction):
         )
     
     try:
-        # Convert transaction to DataFrame
+        # Convert transaction to DataFrame with shape (1, n_features)
         data_dict = transaction.dict()
-        features = {k: [v] for k, v in data_dict.items() 
-                   if k not in ['transaction_id', 'transaction_time']}
-        input_df = pd.DataFrame(features)
-        
+        input_df = pd.DataFrame([data_dict])
+
         # Make prediction
         prediction_proba = MODEL.predict(input_df)
-        
-        # Extract fraud probability (class 1)
-        fraud_proba = float(prediction_proba[0, 1])
+
+        # Handle output shape robustly
+        if hasattr(prediction_proba, 'shape') and prediction_proba.shape[-1] == 2:
+            fraud_proba = float(prediction_proba[0, 1])
+        else:
+            # If output is 1D, assume it's the probability for class 1
+            fraud_proba = float(prediction_proba[0])
         is_fraud = fraud_proba > 0.5
-        
+
         logger.info(f"Prediction: fraud_prob={fraud_proba:.4f}, is_fraud={is_fraud}")
-        
+
         return {
             "prediction_proba_fraud": fraud_proba,
             "is_fraud_predicted": is_fraud,
             "confidence": max(fraud_proba, 1 - fraud_proba),
             "timestamp": datetime.now().isoformat()
         }
-        
+
     except Exception as e:
         logger.exception(f"Prediction failed: {e}")
         raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")

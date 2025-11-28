@@ -178,10 +178,10 @@ docker pull $DOCKER_IMAGE
 docker run -d --name fraud-api \\
   --restart unless-stopped \\
   -p 8000:8000 \\
-  -e MLFLOW_TRACKING_URI=http://localhost:5001 \\
-  -e S3_BUCKET_DATA=$S3_BUCKET_DATA \\
-  -e S3_BUCKET_MODELS=$S3_BUCKET_MODELS \\
-  -e AWS_DEFAULT_REGION=$REGION \\
+  -e MLFLOW_TRACKING_URI = http://$AIRFLOW_IP:5001 \
+  -e S3_BUCKET_DATA = $S3_BUCKET_DATA \\
+  -e S3_BUCKET_MODELS = $S3_BUCKET_MODELS \\
+  -e AWS_DEFAULT_REGION = $REGION \\
   $DOCKER_IMAGE
 
 # Wait for container to start
@@ -199,7 +199,7 @@ EOF
         --instance-type t2.micro \
         --key-name $KEY_NAME \
         --security-group-ids $SG_ID \
-        --iam-instance-profile Name=$IAM_ROLE \
+        --iam-instance-profile Name = $IAM_ROLE \
         --user-data file:///tmp/api-userdata.sh \
         --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=fraud-api},{Key=Project,Value=fraud-detection},{Key=Type,Value=api}]" \
         --region $REGION \
@@ -327,14 +327,14 @@ echo "Airflow+MLflow deployed successfully" > /home/ec2-user/deployment-status.t
 EOF
     
     # Launch instance
-    AIRFLOW_INSTANCE_ID=$(aws ec2 run-instances \
+    AIRFLOW_INSTANCE_ID = $(aws ec2 run-instances \
         --image-id $AMI_ID \
         --instance-type t2.small \
         --key-name $KEY_NAME \
         --security-group-ids $SG_ID \
-        --iam-instance-profile Name=$IAM_ROLE \
+        --iam-instance-profile Name = $IAM_ROLE \
         --user-data file:///tmp/airflow-userdata.sh \
-        --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=fraud-airflow},{Key=Project,Value=fraud-detection},{Key=Type,Value=orchestration}]" \
+        --tag-specifications "ResourceType = instance,Tags =[{Key = Name,Value = fraud-airflow},{Key = Project,Value = fraud-detection},{Key = Type,Value = orchestration}]" \
         --region $REGION \
         --query 'Instances[0].InstanceId' \
         --output text \

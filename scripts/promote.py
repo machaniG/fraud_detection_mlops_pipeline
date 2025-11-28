@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 MODEL_NAME = "FraudDetectionXGBoost"
-MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5001")
+MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://127.0.0.1:5001")
 
 # FILE: scripts/promote.py
 
