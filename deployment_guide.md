@@ -1,35 +1,24 @@
-# host determine IP
-ipconfig getifaddr en0   # typical for Wi‑Fi
-# or use ifconfig
-
-### my host IP: 192.168.0.106
-
-# Start mlflow on host (you already do):
-mlflow server --host 0.0.0.0 --port 5001 --backend-store-uri sqlite:///mlflow.db --default-artifact-root "$(pwd)/mlartifacts"
-
-# Run container pointing to host IP (replace 192.168.1.10 with your IP)
-docker run --rm -p 8000:8000 \
-  -e MLFLOW_TRACKING_URI=http://192.168.0.106:5001 \
-  frida33876/fraud-detection-model:latest
 
 # Deployment Steps
 
-## terminal 1
-### start mlflow server. for production us postgres db
+## Terminal 1
 
+### Start MLflow Server. for production us postgres db
+```bash
 mlflow server --host 127.0.0.1 --port 5001 --backend-store-uri sqlite:///mlruns.db --default-artifact-root ./mlartifacts
+```
+Verify: The server should now be running. You can open your browser and navigate to http://127.0.0.1:5001 to see the MLflow UI. Keep this terminal window open while you execute the next steps.
 
-"""Verify: The server should now be running. You can open your browser and navigate to http://127.0.0.1:5001 to see the MLflow UI. Keep this terminal window open while you execute the next steps.""
+## Terminal 2
 
-## terminal 2
-
-### export mlflow tracking url
+### Export MLflow Tracking URI
+```bash
 export MLFLOW_TRACKING_URI=http://192.168.0.106:5001
 
-### install dependencies
+#install dependencies
 pip install -r requirements.txt
 
-### run training
+# run training
 python scripts/train.py --data transactions.csv --mode all
 
 ### Run Promotion
@@ -37,15 +26,9 @@ python scripts/train.py --data transactions.csv --mode all
 PARENT_RUN_ID="<YOUR_PARENT_RUN_ID_HERE>" # e.g., cd1c867077f04f759f0a8234e48123d4
 python scripts/promote.py --parent_run_id $PARENT_RUN_ID
 
-"""" Terminal 2: Run Promotion (from root directory)"""
-
-PARENT_RUN_ID="5d1c867077f04f759f0a8234e48123d4"
-python scripts/promote.py --parent_run_id $PARENT_RUN_ID
-
-
-### Verify Registration
+# Verify Model Registration
 python scripts/verify_registry.py
-
+```
 
 ## Terminal 3
 
@@ -67,44 +50,38 @@ S3_BUCKET_MODELS="fraud-detection-YOURNAME-models"
 DOCKER_IMAGE="YOUR_DOCKERHUB_USERNAME/fraud-detection-model:latest"
 ```
 
-### build docker image
+### Step 3:Build Docker Image
+```bash
 docker build --no-cache -t frida33876/fraud-detection-model:latest -f dockerfile .
-docker build -t fraud-detection-model:local .
+```
 
-### Run container pointing to host IP (replace 192.168.1.10 with your IP)
-### Run Docker container, pointing to MLflow server:
-### also mount the artifact directory from your host into the container using the -v option in your docker run command:
+### Step 4: Run Docker container, pointing to MLflow server:
 
+Also mount the artifact directory from your host into the container using the -v option in your docker run command:
+```bash 
 docker run --rm -p 8000:8000 \
   -e MLFLOW_TRACKING_URI=http://192.168.0.106:5001 \
   -v /Users/gechemba/Documents/fraud_detection_mlops_pipeline/mlartifacts:/Users/gechemba/Documents/fraud_detection_mlops_pipeline/mlartifacts \
   frida33876/fraud-detection-model:latest
-
-
-"""How to fix (optional but recommended for production):
-
-Use the exact same Python and package versions in your Docker image as in your training environment.
-You can fetch the model’s environment file with:"""
-```bash
-mlflow.pyfunc.get_model_dependencies(model_uri)
 ```
-"""Then install those dependencies in your Dockerfile."""
 
-### If the API starts and loads the model, test endpoints (e.g., /health, /predict). The warnings are not fatal, but matching environments is best practice.
+### Step 5: If the API starts and loads the model, test endpoints (e.g., /health, /predict). 
 
 To test your FastAPI endpoints, you can use:
 
 1. Browser
 Open: http://localhost:8000/docs
 This shows the interactive Swagger UI where you can test all endpoints.
-2. curl (from terminal)
 
-## Health check 
+**Health check**
 
-For the /health endpoint, you don’t need to fill in any fields—just click "Try it out" and then "Execute". It’s a simple GET request.
+For the /health endpoint, you do not need to fill in any fields—just click "Try it out" and then "Execute". It’s a simple GET request.
 
 
-## predict endpoint: provide a json object with the features your model expects
+**Predict endpoint**
+
+Provide a json object with the features your model expects e.g.,
+
 {
   "user_id": 999,
   "account_age_days": 150,
@@ -122,36 +99,72 @@ For the /health endpoint, you don’t need to fill in any fields—just click "T
   "shipping_distance_km": 10.5
 }
 
-# push docker image to dockerhub
-
-### Log in to Docker Hub
+### Step 6: Push Docker Image to Dockerhub
+```bash
+# Log in to Docker Hub
 docker login
 
-### Tag your image (if needed)
+# Tag your image (if needed)
 docker tag frida33876/fraud-detection-model:latest frida33876/fraud-detection-model:latest
 
-### Push to Docker Hub
+# Push to Docker Hub
 docker push frida33876/fraud-detection-model:latest
+```
 
-Before AWS deployment:
+## **NOTE: Before AWS deployment:**
+
 1. Commit final code changes so you can lock the exact code version that corresponds to the image you just pushed
 ```bash
-# 1. Check your status and add any new or modified files
+# Check your status and add any new or modified files
 git status
 git add .
 
-# 2. Commit the changes (including the fixed train.py)
+# Commit the changes (including the fixed train.py)
 git commit -m "Deployment preparation: Fix MLflow log_model error and finalize local testing"
 
-# 3. Push the code to your GitHub repository
+# Push the code to your GitHub repository
 git push
 ```
+
 2. Configure AWS Credentials (Required for Deployment)
 
 You need to provide your machine with the security credentials to interact with AWS services (like creating resources, pushing to ECR, or running deployments).
 ```bash
+# Run configuration
+aws configure
 
+# Enter your credentials:
+AWS Access Key ID: YOUR_ACCESS_KEY
+AWS Secret Access Key: YOUR_SECRET_KEY
+Default region name: eu-central-1
+Default output format: json
+
+# Create EC2 Key Pair
+aws ec2 create-key-pair \
+  --key-name fraud-detection-key \
+  --query 'KeyMaterial' \
+  --output text > fraud-detection-key.pem
+
+# Set permissions
+chmod 400 fraud-detection-key.pem
+
+# Save this file securely!
 ```
+
+3. Create IAM Role for EC2
+
+Go to AWS Console → IAM → Roles → Create Role:
+
+1. Select **EC2** as trusted entity
+2. Attach policies:
+   - `AmazonS3FullAccess`
+   - `CloudWatchLogsFullAccess`
+3. Name: `fraud-detection-ec2-role`
+4. Create role
+
+aws iam attach-role-policy \
+  --role-name fraud-detection-ec2-role \
+  --policy-arn arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
 
 
 #  Deploy to AWS
@@ -172,7 +185,7 @@ You need to provide your machine with the security credentials to interact with 
 This will provision EC2, set up S3 buckets, and deploy your services.
 
 
-### Step 5: Upload Training Data
+### Upload Training Data
 
 ```bash
 # Upload your dataset to S3
@@ -181,7 +194,7 @@ aws s3 cp transactions.csv s3://fraud-detection-YOURNAME-data/raw/
 ws s3 cp transactions.csv s3://fraud-detection-frida-data/raw/
 ```
 
-### Step 6: Access Services
+### Access Services
 
 After deployment completes, you'll see:
 
@@ -192,7 +205,7 @@ Airflow UI: http://YOUR_AIRFLOW_IP:8080 (admin/admin)
 MLflow UI: http://YOUR_AIRFLOW_IP:5001
 ```
 
-### Step 7: Configure Airflow DAG
+### Configure Airflow DAG
 
 1. Access Airflow UI at `http://YOUR_AIRFLOW_IP:8080`
 2. Login with `admin` / `admin`
@@ -202,9 +215,9 @@ MLflow UI: http://YOUR_AIRFLOW_IP:5001
    - Save and enable the DAG
 
 
-### Step 8: Run Training Pipeline
+### Run Training Pipeline
 
-### Run Airflow DAG Via Airflow (Recommended)
+Run Airflow DAG Via Airflow (Recommended)
 
 1. Go to Airflow UI
 2. Find `fraud_detection_aws_pipeline`
